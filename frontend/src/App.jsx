@@ -290,19 +290,52 @@ function ComparisonTable({ rule, ml, llm }) {
               </td>
             </tr>
           )}
-          {llm ? (
+          {!llm ? (
             <tr>
-              <td
-                style={{
-                  padding: "8px 12px",
-                  fontFamily: "monospace",
-                  color: "#38bdf8",
-                }}
-              >
+              <td style={{ padding: "8px 12px", fontFamily: "monospace", color: "#475569" }}>
+                LLM API
+              </td>
+              <td style={{ padding: "8px 12px", color: "#475569", fontStyle: "italic" }}>
+                not connected
+              </td>
+              <td style={{ padding: "8px 12px", color: "#475569" }}>—</td>
+              <td style={{ padding: "8px 12px", color: "#475569", fontStyle: "italic" }}>
+                Plug in Gemini API credentials in backend/.env
+              </td>
+            </tr>
+          ) : llm.status === "disabled" ? (
+            <tr>
+              <td style={{ padding: "8px 12px", fontFamily: "monospace", color: "#475569" }}>
+                LLM API
+              </td>
+              <td style={{ padding: "8px 12px", color: "#475569", fontStyle: "italic" }}>
+                LLM disabled
+              </td>
+              <td style={{ padding: "8px 12px", color: "#475569" }}>—</td>
+              <td style={{ padding: "8px 12px", color: "#475569", fontStyle: "italic" }}>
+                Add GEMINI_API_KEY to backend/.env
+              </td>
+            </tr>
+          ) : llm.status === "error" ? (
+            <tr>
+              <td style={{ padding: "8px 12px", fontFamily: "monospace", color: "#475569" }}>
+                LLM API
+              </td>
+              <td style={{ padding: "8px 12px", color: "#f87171", fontStyle: "italic" }}>
+                LLM unavailable
+              </td>
+              <td style={{ padding: "8px 12px", color: "#475569" }}>—</td>
+              <td style={{ padding: "8px 12px", color: "#64748b", fontStyle: "italic" }}>
+                {llm.summary || "API error"}
+              </td>
+            </tr>
+          ) : (
+            <tr>
+              <td style={{ padding: "8px 12px", fontFamily: "monospace", color: "#38bdf8" }}>
                 LLM API
               </td>
               <td style={{ padding: "8px 12px" }}>
-                <Badge label={llm.llm_label || "Unknown"} />
+                <Badge label={llm.llm_label} />
               </td>
               <td style={{ padding: "8px 12px", fontWeight: 700 }}>
                 {llm.llm_risk_score ?? "—"}
@@ -314,37 +347,6 @@ function ComparisonTable({ rule, ml, llm }) {
                     ? `${(llm.llm_confidence * 100).toFixed(0)}%`
                     : "—"}
                 </span>
-              </td>
-            </tr>
-          ) : (
-            <tr>
-              <td
-                style={{
-                  padding: "8px 12px",
-                  fontFamily: "monospace",
-                  color: "#475569",
-                }}
-              >
-                LLM API
-              </td>
-              <td
-                style={{
-                  padding: "8px 12px",
-                  color: "#475569",
-                  fontStyle: "italic",
-                }}
-              >
-                not connected
-              </td>
-              <td style={{ padding: "8px 12px", color: "#475569" }}>—</td>
-              <td
-                style={{
-                  padding: "8px 12px",
-                  color: "#475569",
-                  fontStyle: "italic",
-                }}
-              >
-                Plug in Gemini API credentials in backend/.env
               </td>
             </tr>
           )}
@@ -429,18 +431,42 @@ function ProbabilityBars({ probs }) {
 
 function LLMAnalysisCard({ llm }) {
   if (!llm) return null;
+
+  const label = {
+    fontSize: "11px",
+    color: "#64748b",
+    textTransform: "uppercase",
+    marginBottom: "8px",
+  };
+
+  if (llm.status === "disabled") {
+    return (
+      <div style={card}>
+        <p style={label}>LLM Analysis</p>
+        <p style={{ fontSize: "13px", color: "#475569", fontStyle: "italic" }}>
+          LLM disabled — add GEMINI_API_KEY to backend/.env to enable
+        </p>
+      </div>
+    );
+  }
+
+  if (llm.status === "error") {
+    return (
+      <div style={card}>
+        <p style={label}>LLM Analysis</p>
+        <p style={{ fontSize: "14px", fontWeight: 700, color: "#f87171", marginBottom: "6px" }}>
+          LLM unavailable
+        </p>
+        <p style={{ fontSize: "12px", color: "#94a3b8", lineHeight: 1.6 }}>
+          {llm.summary || "Gemini API call failed."}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div style={card}>
-      <p
-        style={{
-          fontSize: "11px",
-          color: "#64748b",
-          textTransform: "uppercase",
-          marginBottom: "8px",
-        }}
-      >
-        LLM Analysis
-      </p>
+      <p style={label}>LLM Analysis</p>
       <p
         style={{
           fontSize: "14px",
@@ -449,7 +475,7 @@ function LLMAnalysisCard({ llm }) {
           marginBottom: "10px",
         }}
       >
-        {llm.llm_label || "Unknown"}
+        {llm.llm_label}
       </p>
       <p
         style={{
@@ -485,7 +511,16 @@ function LLMAnalysisCard({ llm }) {
 function ReportModal({ report, onClose }) {
   const [copied, setCopied] = useState(false);
 
-  const text = `AI CYBER DEFENSE LAB — SECURITY REPORT\nGenerated: ${report.generated_at}\nModule: ${report.module.replace("_", " ").toUpperCase()}\n\nEXECUTIVE SUMMARY\n${report.summary}\n\nTHREAT: ${report.threat}\nRISK SCORE: ${report.risk_score}/100\n\nEVIDENCE\n${report.evidence.map((e, i) => `  ${i + 1}. ${e}`).join("\n") || "  No specific patterns detected."}\n\nRECOMMENDED DEFENSES\n${report.recommended_defenses.map((d, i) => `  ${i + 1}. ${d}`).join("\n")}\n\nDETECTION COMPARISON\n  Rule-Based: ${report.comparison?.rule_based?.risk_score ?? "—"}/100\n  ML Model:   ${report.comparison?.ml_based?.risk_score ?? "—"}/100\n  LLM API:    ${report.comparison?.llm_based?.risk_score != null ? `${report.comparison.llm_based.risk_score}/100` : "Not connected"}`;
+  const llmCompText = (() => {
+    const lb = report.comparison?.llm_based;
+    if (!lb) return "Not connected";
+    if (lb.status === "disabled") return "LLM disabled";
+    if (lb.status === "error") return "LLM unavailable";
+    if (lb.llm_risk_score != null) return `${lb.llm_risk_score}/100`;
+    return "Not connected";
+  })();
+
+  const text = `AI CYBER DEFENSE LAB — SECURITY REPORT\nGenerated: ${report.generated_at}\nModule: ${report.module.replace("_", " ").toUpperCase()}\n\nEXECUTIVE SUMMARY\n${report.summary}\n\nTHREAT: ${report.threat}\nRISK SCORE: ${report.risk_score}/100\n\nEVIDENCE\n${report.evidence.map((e, i) => `  ${i + 1}. ${e}`).join("\n") || "  No specific patterns detected."}\n\nRECOMMENDED DEFENSES\n${report.recommended_defenses.map((d, i) => `  ${i + 1}. ${d}`).join("\n")}\n\nDETECTION COMPARISON\n  Rule-Based: ${report.comparison?.rule_based?.risk_score ?? "—"}/100\n  ML Model:   ${report.comparison?.ml_based?.risk_score ?? "—"}/100\n  LLM API:    ${llmCompText}`;
 
   const copy = () => {
     navigator.clipboard.writeText(text);
@@ -769,11 +804,7 @@ function ReportModal({ report, onClose }) {
                 }}
               >
                 <span>LLM API</span>
-                <span>
-                  {report.comparison?.llm_based?.risk_score != null
-                    ? `${report.comparison.llm_based.risk_score}/100`
-                    : "Not connected"}
-                </span>
+                <span>{llmCompText}</span>
               </div>
             </div>
           </div>

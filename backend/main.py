@@ -42,8 +42,8 @@ class ReportRequest(BaseModel):
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("gemini_api_key")
-GEMINI_API_BASE = os.getenv("GEMINI_API_BASE", "https://gemini.googleapis.com/v1")
-GEMINI_API_MODEL = os.getenv("GEMINI_API_MODEL", "gemini-1.5-mini")
+GEMINI_API_BASE = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 GEMINI_API_TIMEOUT = float(os.getenv("GEMINI_API_TIMEOUT", "15"))
 
 
@@ -52,29 +52,10 @@ def _fuse_scores(rule_score: int, ml_score: int, rule_weight: float = 0.55) -> i
 
 
 def _extract_gemini_text(response_json: dict) -> str:
-    if not isinstance(response_json, dict):
-        return ''
-
-    if "candidates" in response_json:
-        candidates = response_json.get("candidates")
-        if isinstance(candidates, list) and candidates:
-            first = candidates[0]
-            if isinstance(first, dict) and "content" in first:
-                return first["content"]
-
-    if "output" in response_json:
-        output = response_json.get("output")
-        if isinstance(output, list) and output:
-            first = output[0]
-            if isinstance(first, dict) and "content" in first:
-                return first["content"]
-        if isinstance(output, str):
-            return output
-
-    if "reply" in response_json and isinstance(response_json["reply"], dict):
-        return response_json["reply"].get("content", "")
-
-    return response_json.get("text", "") or response_json.get("response", "") or json.dumps(response_json)
+    try:
+        return response_json["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError):
+        return json.dumps(response_json)
 
 
 def _parse_llm_json(raw_text: str) -> dict | None:
@@ -130,7 +111,7 @@ def _build_gemini_prompt(module: str, text: str) -> str:
 
 
 def _normalize_llm_analysis(module: str, payload: dict, raw_text: str) -> dict:
-    label = payload.get("llm_label") or payload.get("label") or payload.get("status") or payload.get("classification") or "Unknown"
+    label = payload.get("llm_label") or payload.get("label") or payload.get("classification") or "Unknown"
     risk_score = payload.get("llm_risk_score") or payload.get("risk_score") or 0
     confidence = payload.get("llm_confidence") or payload.get("confidence") or 0.0
     probabilities = payload.get("llm_probabilities") or payload.get("probabilities") or {}
@@ -155,6 +136,7 @@ def _normalize_llm_analysis(module: str, payload: dict, raw_text: str) -> dict:
     llm_explanation = payload.get("llm_explanation") or payload.get("explanation") or payload.get("reason") or payload.get("summary") or raw_text
 
     return {
+        "status": "ok",
         "llm_label": str(label),
         "llm_risk_score": risk_score,
         "llm_confidence": round(confidence, 3),
@@ -165,32 +147,37 @@ def _normalize_llm_analysis(module: str, payload: dict, raw_text: str) -> dict:
 
 
 async def _query_gemini(prompt: str) -> str:
-    if not GEMINI_API_KEY:
-        return ""
-
-    url = f"{GEMINI_API_BASE}/models/{GEMINI_API_MODEL}:generate"
+    url = f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent"
     params = {"key": GEMINI_API_KEY}
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {GEMINI_API_KEY}",
-    }
+    headers = {"Content-Type": "application/json"}
     body = {
-        "prompt": {"text": prompt},
-        "temperature": 0.0,
-        "max_output_tokens": 256,
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 300,
+        },
     }
 
     async with httpx.AsyncClient(timeout=GEMINI_API_TIMEOUT) as client:
         response = await client.post(url, params=params, headers=headers, json=body)
         response.raise_for_status()
-        payload = response.json()
-        raw_text = _extract_gemini_text(payload)
-        return raw_text
+        return _extract_gemini_text(response.json())
 
 
 async def analyze_with_gemini(module: str, text: str):
     if not GEMINI_API_KEY:
-        return None
+        return {
+            "status": "disabled",
+            "summary": "LLM analysis disabled because GEMINI_API_KEY is missing",
+            "risk_score": None,
+            "confidence": None,
+        }
 
     prompt = _build_gemini_prompt(module, text)
     try:
@@ -199,21 +186,18 @@ async def analyze_with_gemini(module: str, text: str):
         if parsed:
             return _normalize_llm_analysis(module, parsed, raw_text)
         return {
-            "llm_label": "Unknown",
-            "llm_risk_score": 0,
-            "llm_confidence": 0.0,
-            "llm_probabilities": {},
-            "llm_explanation": raw_text or "Gemini response could not be parsed.",
+            "status": "error",
+            "summary": "Gemini response could not be parsed as JSON.",
+            "risk_score": None,
+            "confidence": None,
             "raw_response": raw_text,
         }
     except Exception as exc:
         return {
-            "llm_label": "Unknown",
-            "llm_risk_score": 0,
-            "llm_confidence": 0.0,
-            "llm_probabilities": {},
-            "llm_explanation": f"Gemini API error: {str(exc)}",
-            "raw_response": "",
+            "status": "error",
+            "summary": f"Gemini API error: {str(exc)[:200]}",
+            "risk_score": None,
+            "confidence": None,
         }
 
 
